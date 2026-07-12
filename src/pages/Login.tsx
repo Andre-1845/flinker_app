@@ -1,12 +1,12 @@
 import { useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Mail, Lock, ArrowLeft, FileText, User, Briefcase, Building2 } from "lucide-react";
+import { Mail, Lock, ArrowLeft, FileText, User, Briefcase, Building2, IdCard, Phone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
-import { supabase } from "@/integrations/supabase/client";
-import { lovable } from "@/integrations/lovable/index";
 import { useAuth } from "@/contexts/AuthContext";
+import { login, registerProfessional, registerCompany } from "@/lib/auth";
+import { ApiError } from "@/lib/api";
 import { toast } from "sonner";
 import logo from "@/assets/flinker-logo.png";
 
@@ -29,12 +29,16 @@ const Login = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
+  const [cpf, setCpf] = useState("");
+  const [cnpj, setCnpj] = useState("");
+  const [responsibleCpf, setResponsibleCpf] = useState("");
+  const [phone, setPhone] = useState("");
   const [selectedRole, setSelectedRole] = useState<UserRole>("worker");
   const [isLoading, setIsLoading] = useState(false);
 
-  const { user, loading: authLoading, userRole } = useAuth();
+  const { user, loading: authLoading, userRole, setAuthenticatedUser } = useAuth();
 
-  // Redirect authenticated users to their dashboard
+  // Redireciona quem já está logado pro dashboard certo
   useEffect(() => {
     if (!authLoading && user && userRole) {
       navigate(userRole === "company" ? "/company-dashboard" : "/dashboard", { replace: true });
@@ -54,6 +58,15 @@ const Login = () => {
     }
   }, [searchParams]);
 
+  const handleApiError = (error: unknown, fallback: string) => {
+    if (error instanceof ApiError) {
+      const firstFieldError = error.errors ? Object.values(error.errors)[0]?.[0] : undefined;
+      toast.error(firstFieldError ?? error.message ?? fallback);
+      return;
+    }
+    toast.error(fallback);
+  };
+
   const handleLogin = async () => {
     if (!email || !password) {
       toast.error("Preencha todos os campos");
@@ -61,35 +74,20 @@ const Login = () => {
     }
     setIsLoading(true);
 
-    // Save or clear email based on "remember me"
     if (rememberMe) {
       localStorage.setItem("flinker_saved_email", email);
     } else {
       localStorage.removeItem("flinker_saved_email");
     }
 
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    setIsLoading(false);
-
-    if (error) {
-      if (error.message.includes("Email not confirmed")) {
-        toast.error("Confirme seu e-mail antes de entrar. Verifique sua caixa de entrada.");
-      } else {
-        toast.error("E-mail ou senha incorretos");
-      }
-      return;
-    }
-
-    const { data: roleData } = await supabase
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", (await supabase.auth.getUser()).data.user?.id ?? "")
-      .maybeSingle();
-
-    if (roleData?.role === "company") {
-      navigate("/company-dashboard");
-    } else {
-      navigate("/dashboard");
+    try {
+      const loggedUser = await login(email, password);
+      setAuthenticatedUser(loggedUser);
+      navigate(loggedUser.profile === "company" ? "/company-dashboard" : "/dashboard");
+    } catch (error) {
+      handleApiError(error, "E-mail ou senha incorretos");
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -98,81 +96,55 @@ const Login = () => {
       toast.error("Preencha todos os campos obrigatórios");
       return;
     }
-    if (selectedRole === "company") {
-      if (!fullName) {
-        toast.error("Preencha o nome da empresa");
-        return;
-      }
+    if (selectedRole === "worker" && (!cpf || !phone)) {
+      toast.error("Preencha CPF e telefone");
+      return;
+    }
+    if (selectedRole === "company" && (!cnpj || !responsibleCpf || !phone)) {
+      toast.error("Preencha CNPJ, CPF do responsável e telefone");
+      return;
     }
     if (!acceptedTerms) {
       toast.error("Aceite os termos para continuar");
       return;
     }
-    if (password.length < 6) {
-      toast.error("A senha deve ter pelo menos 6 caracteres");
+    if (password.length < 8) {
+      toast.error("A senha deve ter pelo menos 8 caracteres");
       return;
     }
 
     setIsLoading(true);
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: {
-          full_name: fullName,
-          role: selectedRole,
-        },
-        emailRedirectTo: window.location.origin,
-      },
-    });
-    setIsLoading(false);
 
-    if (error) {
-      toast.error(error.message);
-      return;
-    }
+    try {
+      const newUser =
+        selectedRole === "company"
+          ? await registerCompany({
+              name: fullName,
+              email,
+              password,
+              password_confirmation: password,
+              cnpj: cnpj.replace(/\D/g, ""),
+              responsible_name: fullName,
+              responsible_cpf: responsibleCpf.replace(/\D/g, ""),
+              phone,
+            })
+          : await registerProfessional({
+              name: fullName,
+              email,
+              password,
+              password_confirmation: password,
+              cpf: cpf.replace(/\D/g, ""),
+              phone,
+            });
 
-    toast.success("Conta criada com sucesso! Fazendo login...");
-    
-    // Auto-login after signup since email confirmation is disabled
-    const { error: loginError } = await supabase.auth.signInWithPassword({ email, password });
-    if (loginError) {
-      toast.info("Conta criada! Faça login para continuar.");
-      setIsSignUp(false);
-      return;
-    }
-
-    const { data: roleData } = await supabase
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", (await supabase.auth.getUser()).data.user?.id ?? "")
-      .maybeSingle();
-
-    navigate(roleData?.role === "company" ? "/company-dashboard" : "/dashboard");
-  };
-
-  const handleGoogleLogin = async () => {
-    setIsLoading(true);
-    const result = await lovable.auth.signInWithOAuth("google", {
-      redirect_uri: window.location.origin,
-    });
-
-    if (result.error) {
-      toast.error("Erro ao entrar com Google");
+      setAuthenticatedUser(newUser);
+      toast.success("Conta criada com sucesso!");
+      navigate(newUser.profile === "company" ? "/company-dashboard" : "/dashboard");
+    } catch (error) {
+      handleApiError(error, "Não foi possível criar a conta. Verifique os dados e tente novamente.");
+    } finally {
       setIsLoading(false);
-      return;
     }
-
-    if (result.redirected) return;
-
-    const { data: roleData } = await supabase
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", (await supabase.auth.getUser()).data.user?.id ?? "")
-      .maybeSingle();
-
-    navigate(roleData?.role === "company" ? "/company-dashboard" : "/dashboard");
-    setIsLoading(false);
   };
 
   return (
@@ -196,7 +168,7 @@ const Login = () => {
         <div className="mt-5 space-y-3">
           {isSignUp && (
             <>
-              {/* Role Selection */}
+              {/* Seleção de perfil */}
               <div className="space-y-2">
                 <p className="text-xs font-medium text-muted-foreground">Tipo de conta</p>
                 <div className="grid grid-cols-2 gap-2">
@@ -229,7 +201,7 @@ const Login = () => {
                 <div className="relative">
                   <Building2 className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
-                    placeholder="Nome da empresa"
+                    placeholder="Nome do responsável"
                     value={fullName}
                     onChange={(e) => setFullName(e.target.value)}
                     className="bg-card border-border pl-11 py-5 rounded-xl"
@@ -246,6 +218,49 @@ const Login = () => {
                   />
                 </div>
               )}
+
+              {/* Campos obrigatórios pelo backend, além do nome/email/senha */}
+              {selectedRole === "worker" ? (
+                <div className="relative">
+                  <IdCard className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    placeholder="CPF (somente números)"
+                    value={cpf}
+                    onChange={(e) => setCpf(e.target.value)}
+                    className="bg-card border-border pl-11 py-5 rounded-xl"
+                  />
+                </div>
+              ) : (
+                <>
+                  <div className="relative">
+                    <IdCard className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      placeholder="CNPJ (somente números)"
+                      value={cnpj}
+                      onChange={(e) => setCnpj(e.target.value)}
+                      className="bg-card border-border pl-11 py-5 rounded-xl"
+                    />
+                  </div>
+                  <div className="relative">
+                    <IdCard className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      placeholder="CPF do responsável"
+                      value={responsibleCpf}
+                      onChange={(e) => setResponsibleCpf(e.target.value)}
+                      className="bg-card border-border pl-11 py-5 rounded-xl"
+                    />
+                  </div>
+                </>
+              )}
+              <div className="relative">
+                <Phone className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="Telefone"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  className="bg-card border-border pl-11 py-5 rounded-xl"
+                />
+              </div>
             </>
           )}
 
@@ -271,7 +286,7 @@ const Login = () => {
             />
           </div>
 
-          {/* Remember me + Forgot password (login only) */}
+          {/* Lembrar e-mail + esqueci senha (só no login) */}
           {!isSignUp && (
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -332,21 +347,6 @@ const Login = () => {
             className="w-full gradient-primary glow-orange rounded-xl py-6 text-base font-bold text-primary-foreground disabled:opacity-50"
           >
             {isLoading ? "Carregando..." : isSignUp ? "Criar Conta" : "Entrar"}
-          </Button>
-
-          <div className="flex items-center gap-3">
-            <div className="h-px flex-1 bg-border" />
-            <span className="text-xs text-muted-foreground">ou</span>
-            <div className="h-px flex-1 bg-border" />
-          </div>
-
-          <Button
-            variant="outline"
-            onClick={handleGoogleLogin}
-            disabled={isLoading}
-            className="w-full rounded-xl py-6 border-border bg-card text-foreground"
-          >
-            Continuar com Google
           </Button>
         </div>
 

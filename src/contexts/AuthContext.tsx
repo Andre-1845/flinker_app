@@ -1,28 +1,28 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
-import { User, Session } from "@supabase/supabase-js";
-import { supabase } from "@/integrations/supabase/client";
-
-type UserRole = "worker" | "company" | "admin";
+import { getToken, setToken as persistToken } from "@/lib/api";
+import { fetchCurrentUser, logout as logoutRequest } from "@/lib/auth";
+import { profileToFrontendRole, type FrontendRole, type User } from "@/lib/types";
 
 interface AuthContextType {
   user: User | null;
-  session: Session | null;
   loading: boolean;
-  userRole: UserRole | null;
-  guestRole: UserRole | null;
-  effectiveRole: UserRole | null;
-  setGuestRole: (role: UserRole | null) => void;
+  userRole: FrontendRole | null;
+  guestRole: FrontendRole | null;
+  effectiveRole: FrontendRole | null;
+  setGuestRole: (role: FrontendRole | null) => void;
+  /** Chame depois de um login/cadastro bem-sucedido pra popular o contexto sem recarregar a página. */
+  setAuthenticatedUser: (user: User) => void;
   signOut: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType>({
   user: null,
-  session: null,
   loading: true,
   userRole: null,
   guestRole: null,
   effectiveRole: null,
   setGuestRole: () => {},
+  setAuthenticatedUser: () => {},
   signOut: async () => {},
 });
 
@@ -30,14 +30,12 @@ export const useAuth = () => useContext(AuthContext);
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
-  const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
-  const [userRole, setUserRole] = useState<UserRole | null>(null);
-  const [guestRole, setGuestRoleState] = useState<UserRole | null>(
-    (localStorage.getItem("flinker_guest_role") as UserRole) || null
+  const [guestRole, setGuestRoleState] = useState<FrontendRole | null>(
+    (localStorage.getItem("flinker_guest_role") as FrontendRole) || null
   );
 
-  const setGuestRole = (role: UserRole | null) => {
+  const setGuestRole = (role: FrontendRole | null) => {
     if (role) {
       localStorage.setItem("flinker_guest_role", role);
     } else {
@@ -46,54 +44,46 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setGuestRoleState(role);
   };
 
-  // Guest role (explicit onboarding choice) takes priority over DB role
+  const userRole = user ? profileToFrontendRole(user.profile) : null;
+
+  // Guest role (escolha explícita no onboarding) tem prioridade sobre o papel real da conta
   const effectiveRole = guestRole || userRole;
 
-  const fetchRole = async (userId: string) => {
-    const { data } = await supabase
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", userId)
-      .maybeSingle();
-    setUserRole((data?.role as UserRole) ?? null);
+  const setAuthenticatedUser = (nextUser: User) => {
+    setUser(nextUser);
+    setGuestRole(null);
   };
 
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
-        setSession(session);
-        setUser(session?.user ?? null);
-        if (session?.user) {
-          setTimeout(() => fetchRole(session.user.id), 0);
-        } else {
-          setUserRole(null);
-        }
-        setLoading(false);
-      }
-    );
+    const token = getToken();
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        fetchRole(session.user.id);
-      }
+    if (!token) {
       setLoading(false);
-    });
+      return;
+    }
 
-    return () => subscription.unsubscribe();
+    fetchCurrentUser()
+      .then(setUser)
+      .catch(() => {
+        // Token inválido/expirado — já foi limpo pelo cliente de API (ver src/lib/api.ts)
+        setUser(null);
+      })
+      .finally(() => setLoading(false));
   }, []);
 
   const signOut = async () => {
-    await supabase.auth.signOut();
+    await logoutRequest().catch(() => {
+      // Mesmo se a chamada falhar (ex: token já expirado), limpamos o estado local.
+      persistToken(null);
+    });
     setUser(null);
-    setSession(null);
-    setUserRole(null);
     setGuestRole(null);
   };
 
   return (
-    <AuthContext.Provider value={{ user, session, loading, userRole, guestRole, effectiveRole, setGuestRole, signOut }}>
+    <AuthContext.Provider
+      value={{ user, loading, userRole, guestRole, effectiveRole, setGuestRole, setAuthenticatedUser, signOut }}
+    >
       {children}
     </AuthContext.Provider>
   );
