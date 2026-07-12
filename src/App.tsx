@@ -24,6 +24,7 @@ import FinancialHistory from "./pages/FinancialHistory";
 import CompanyWallet from "./pages/CompanyWallet";
 import CompanyProfile from "./pages/CompanyProfile";
 import CompanyGigFeed from "./pages/CompanyGigFeed";
+import CreateFlink from "./pages/CreateFlink";
 import VerificationSubscription from "./pages/VerificationSubscription";
 import Schedule from "./pages/Schedule";
 import NotFound from "./pages/NotFound";
@@ -46,6 +47,7 @@ const App = () => (
             <Route path="/company-dashboard" element={<ProtectedRoute allowedRoles={["company"]}><CompanyDashboard /></ProtectedRoute>} />
             <Route path="/gigs" element={<ProtectedRoute allowedRoles={["worker"]}><GigFeed /></ProtectedRoute>} />
             <Route path="/company-gigs" element={<ProtectedRoute allowedRoles={["company"]}><CompanyGigFeed /></ProtectedRoute>} />
+            <Route path="/company-flinks/new" element={<ProtectedRoute allowedRoles={["company"]}><CreateFlink /></ProtectedRoute>} />
             <Route path="/gig-checkin" element={<ProtectedRoute><GigCheckIn /></ProtectedRoute>} />
             <Route path="/matches" element={<ProtectedRoute><Matches /></ProtectedRoute>} />
             <Route path="/chat" element={<Navigate to="/schedule" replace />} />

@@ -30,6 +30,7 @@ export interface Company {
   responsible_name: string;
   responsible_cpf: string;
   phone: string;
+  address: string | null;
   pix_key: string | null;
   reputation: number;
 }

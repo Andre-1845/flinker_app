@@ -1,3 +1,11 @@
+/**
+ * ⚠️ PENDENTE (ver docs/FRONTEND_MIGRATION.md): esta tela permite a empresa "dar swipe"
+ * diretamente em profissionais (sem estar ligado a um Flink específico). Isso não tem
+ * endpoint correspondente no backend Laravel — lá, o fluxo é sempre profissional demonstra
+ * interesse em um Flink publicado, e a empresa aceita (ver Fase 3 do backend). Ainda 100%
+ * mock. Precisa de uma decisão de produto antes de migrar: vira uma feature nova no
+ * backend, ou é substituída pelo fluxo de Match já existente?
+ */
 import { useState, useMemo } from "react";
 import { Filter, Info, Loader2 } from "lucide-react";
 import BottomNavCompany from "@/components/BottomNavCompany";

@@ -49,11 +49,40 @@ Se não for definida, `src/lib/api.ts` usa esse valor como padrão.
 - **`src/hooks/useCompanyProfile.ts`** ainda lê direto do Supabase.
 - **`src/pages/GigFeed.tsx`** ainda usa Supabase para localStorage de dismissals + queries.
 
+## Etapa 2 — Telas da empresa (concluída)
+
+- **Backend**: adicionado campo `address` em `companies` (não existia na spec original,
+  mas as telas do Lovable esperavam) — ver migration `2026_07_15_000001` no `flinker_backend`.
+- `src/lib/flinks.ts` — novo serviço com as chamadas de API relacionadas a Flink
+  (`createFlink`, `listCompanyFlinks`, `listActiveFlinks`, `getFlink`, `updateFlink`, `deleteFlink`).
+- `src/hooks/useCompanyProfile.ts` — reescrito para derivar o status (`incomplete`/`complete`)
+  direto do `user.company` já carregado no `AuthContext`, em vez de uma chamada separada ao
+  Supabase. **`verified` nunca é `true` ainda** — a Flinker não tem conceito de empresa
+  verificada no backend (ficaria para a Fase 6/Admin).
+- `AuthContext.tsx` — ganhou um `refreshUser()` (recarrega `/users/me`), usado depois de
+  salvar o cadastro da empresa.
+- `src/components/CompanyRegistrationForm.tsx` — reescrito para chamar `PUT /api/users/me`
+  (nome) e `PUT /api/companies/{id}` (demais campos) em vez de `supabase.rpc`. UI e validação
+  de campos (CNPJ, CPF, busca de CEP via ViaCEP) mantidas como estavam.
+- `src/pages/CreateFlink.tsx` — **tela nova**, não existia nem como mock no Lovable (o botão
+  "Publicar Novo Flink" só mostrava um toast "em breve"). Formulário completo — atividade,
+  local, latitude/longitude, datas, requisitos, valor líquido — com preview do cálculo de
+  margem em tempo real. Chama `POST /api/flinks`.
+- `src/pages/CompanyDashboard.tsx` — reescrito para buscar os Flinks reais da empresa
+  (`GET /api/flinks/company/{id}`) em vez de estatísticas e "profissionais sugeridos"
+  mockados. Botão de publicar Flink agora navega para `/company-flinks/new`.
+- **`src/pages/CompanyGigFeed.tsx` — ainda 100% mock, sinalizada no código.** Essa tela deixa
+  a empresa "dar swipe" em profissionais diretamente, sem depender de um Flink publicado.
+  Isso não existe no backend (lá o fluxo é sempre profissional→interesse→empresa aceita).
+  **Precisa de uma decisão de produto** antes de migrar: vira uma feature nova (endpoint
+  de "sugestão de profissionais" independente de Flink) ou é descontinuada em favor do
+  fluxo de Match já existente?
+
 ## Roteiro das próximas etapas
 
 | Etapa | Telas | Depende de (backend) |
 |---|---|---|
-| 2 | `CompanyDashboard`, `CompanyGigFeed`, `CompanyProfile`, `CompanyRegistrationForm` | Fase 2 (Flink) — já pronto |
+| 2 ✅ | `CompanyDashboard`, `CreateFlink` (nova), `CompanyProfile`, `CompanyRegistrationForm` | Fase 2 (Flink) — já pronto |
 | 3 | `GigFeed`, `Matches`, `GigCheckIn`, `Schedule`, `WorkerDashboard`, `WorkerPublicProfile`, `Profile`, `ProfileRegistrationForm` | Fase 3 (Match/Agenda/Check-in) — já pronto |
 | 4 | `Wallet`, `CompanyWallet`, `FinancialHistory` | Fase 4 do backend (Carteira/Mercado Pago) — **ainda não construída** |
 | 5 | Reputação/avaliações (sem tela dedicada ainda identificada — a mapear) | Fase 5 do backend — **ainda não construída** |
@@ -62,6 +91,7 @@ Se não for definida, `src/lib/api.ts` usa esse valor como padrão.
 | — | `VerificationSubscription` | Não mapeado na spec original — avaliar se entra no MVP |
 | — | `Chat` | Não mapeado na spec original — avaliar se entra no MVP |
 | — | `ForgotPassword`, `ResetPassword` | Precisa de endpoint novo no backend (não existe ainda) |
+| — | `CompanyGigFeed` (swipe em profissionais) | **Precisa de decisão de produto** — não existe no fluxo do backend atual |
 
 ## Mapeamento de nomenclatura (Supabase → Laravel)
 

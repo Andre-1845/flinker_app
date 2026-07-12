@@ -26,6 +26,7 @@ export interface RegisterCompanyData {
   responsible_name: string;
   responsible_cpf: string;
   phone: string;
+  address?: string;
   pix_key?: string;
 }
 

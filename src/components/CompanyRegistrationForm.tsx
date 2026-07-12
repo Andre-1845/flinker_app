@@ -2,7 +2,8 @@ import { useState, useEffect } from "react";
 import { Save, Building2, Phone, MapPin, AlertCircle, CheckCircle, User, FileText, Search, Loader2, Key, LogIn } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
+import { api, ApiError } from "@/lib/api";
+import type { Company, User as ApiUser } from "@/lib/types";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 
@@ -91,33 +92,27 @@ const CompanyRegistrationForm = ({ onSave }: CompanyRegistrationFormProps) => {
   const [loadingCep, setLoadingCep] = useState(false);
 
   useEffect(() => {
-    const load = async () => {
-      if (!user) {
+    const load = () => {
+      if (!user?.company) {
         setLoadingData(false);
         return;
       }
-      const { data } = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("user_id", user.id)
-        .maybeSingle();
-      if (data) {
-        setCompanyName(data.full_name || "");
-        setCnpj(data.cnpj ? formatCNPJ(data.cnpj) : "");
-        setPhone(data.phone ? formatPhone(data.phone) : "");
-        setResponsibleName(data.responsible_name || "");
-        setResponsibleCpf(data.cpf ? formatCPF(data.cpf) : "");
-        setPixKey(data.pix_key || "");
-        if (data.address) {
-          const parts = data.address.split(" | ");
-          if (parts.length >= 3) {
-            setCep(parts[0] || "");
-            setAddress(parts[1] || "");
-            setCity(parts[2]?.split(" - ")[0] || "");
-            setState(parts[2]?.split(" - ")[1] || "");
-          } else {
-            setAddress(data.address);
-          }
+      const c = user.company;
+      setCompanyName(user.name || "");
+      setCnpj(c.cnpj ? formatCNPJ(c.cnpj) : "");
+      setPhone(c.phone ? formatPhone(c.phone) : "");
+      setResponsibleName(c.responsible_name || "");
+      setResponsibleCpf(c.responsible_cpf ? formatCPF(c.responsible_cpf) : "");
+      setPixKey(c.pix_key || "");
+      if (c.address) {
+        const parts = c.address.split(" | ");
+        if (parts.length >= 3) {
+          setCep(parts[0] || "");
+          setAddress(parts[1] || "");
+          setCity(parts[2]?.split(" - ")[0] || "");
+          setState(parts[2]?.split(" - ")[1] || "");
+        } else {
+          setAddress(c.address);
         }
       }
       setLoadingData(false);
@@ -157,7 +152,7 @@ const CompanyRegistrationForm = ({ onSave }: CompanyRegistrationFormProps) => {
   };
 
   const handleSave = async () => {
-    if (!user) {
+    if (!user?.company) {
       toast.error("Você precisa criar uma conta para salvar o cadastro.");
       navigate("/login?signup=company");
       return;
@@ -168,22 +163,26 @@ const CompanyRegistrationForm = ({ onSave }: CompanyRegistrationFormProps) => {
     }
     setSaving(true);
     const fullAddress = `${cep} | ${address} | ${city} - ${state}`;
-    const { error } = await supabase.rpc("update_own_profile", {
-      p_full_name: companyName.trim(),
-      p_cnpj: cnpj.replace(/\D/g, ""),
-      p_phone: phone.replace(/\D/g, ""),
-      p_address: fullAddress,
-      p_responsible_name: responsibleName.trim(),
-      p_cpf: responsibleCpf.replace(/\D/g, ""),
-      p_pix_key: pixKey.trim(),
-    });
 
-    setSaving(false);
-    if (error) {
-      toast.error("Erro ao salvar. Tente novamente.");
-    } else {
+    try {
+      if (companyName.trim() !== user.name) {
+        await api.put<{ data: ApiUser }>("/users/me", { name: companyName.trim() });
+      }
+      await api.put<{ data: Company }>(`/companies/${user.company.id}`, {
+        responsible_name: responsibleName.trim(),
+        responsible_cpf: responsibleCpf.replace(/\D/g, ""),
+        phone: phone.replace(/\D/g, ""),
+        address: fullAddress,
+        pix_key: pixKey.trim(),
+      });
+
       toast.success("Cadastro da empresa salvo com sucesso!");
       onSave?.();
+    } catch (error) {
+      const message = error instanceof ApiError ? error.message : "Erro ao salvar. Tente novamente.";
+      toast.error(message);
+    } finally {
+      setSaving(false);
     }
   };
 

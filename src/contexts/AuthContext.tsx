@@ -12,6 +12,8 @@ interface AuthContextType {
   setGuestRole: (role: FrontendRole | null) => void;
   /** Chame depois de um login/cadastro bem-sucedido pra popular o contexto sem recarregar a página. */
   setAuthenticatedUser: (user: User) => void;
+  /** Recarrega os dados do usuário logado (ex: depois de editar o perfil). */
+  refreshUser: () => Promise<void>;
   signOut: () => Promise<void>;
 }
 
@@ -23,6 +25,7 @@ const AuthContext = createContext<AuthContextType>({
   effectiveRole: null,
   setGuestRole: () => {},
   setAuthenticatedUser: () => {},
+  refreshUser: async () => {},
   signOut: async () => {},
 });
 
@@ -54,6 +57,15 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setGuestRole(null);
   };
 
+  const refreshUser = async () => {
+    try {
+      const fresh = await fetchCurrentUser();
+      setUser(fresh);
+    } catch {
+      // Se falhar (ex: token expirou), deixa o próximo request 401 tratar o logout.
+    }
+  };
+
   useEffect(() => {
     const token = getToken();
 
@@ -82,7 +94,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   return (
     <AuthContext.Provider
-      value={{ user, loading, userRole, guestRole, effectiveRole, setGuestRole, setAuthenticatedUser, signOut }}
+      value={{ user, loading, userRole, guestRole, effectiveRole, setGuestRole, setAuthenticatedUser, refreshUser, signOut }}
     >
       {children}
     </AuthContext.Provider>
