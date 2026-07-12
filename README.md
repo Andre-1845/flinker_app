@@ -3,10 +3,11 @@
 App web/mobile do Flinker — telas geradas originalmente pelo Lovable, em migração para
 consumir o backend Laravel (`flinker_backend`) em vez do Supabase.
 
-## Status da migração
+## Documentação
 
-Veja [`docs/FRONTEND_MIGRATION.md`](./docs/FRONTEND_MIGRATION.md) para o progresso
-detalhado, tela por tela, e o que ainda depende do Supabase.
+- [`CHANGELOG.md`](./CHANGELOG.md) — histórico de mudanças, decisões e correções por etapa
+- [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) — arquitetura e decisões estruturais
+- [`docs/FRONTEND_MIGRATION.md`](./docs/FRONTEND_MIGRATION.md) — progresso da migração, tela por tela
 
 ## Rodando localmente
 
