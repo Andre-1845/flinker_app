@@ -48,7 +48,7 @@ const App = () => (
             <Route path="/gigs" element={<ProtectedRoute allowedRoles={["worker"]}><GigFeed /></ProtectedRoute>} />
             <Route path="/company-gigs" element={<ProtectedRoute allowedRoles={["company"]}><CompanyGigFeed /></ProtectedRoute>} />
             <Route path="/company-flinks/new" element={<ProtectedRoute allowedRoles={["company"]}><CreateFlink /></ProtectedRoute>} />
-            <Route path="/gig-checkin" element={<ProtectedRoute><GigCheckIn /></ProtectedRoute>} />
+            <Route path="/gig-checkin/:matchId" element={<ProtectedRoute><GigCheckIn /></ProtectedRoute>} />
             <Route path="/matches" element={<ProtectedRoute><Matches /></ProtectedRoute>} />
             <Route path="/chat" element={<Navigate to="/schedule" replace />} />
             <Route path="/profile" element={<ProtectedRoute allowedRoles={["worker"]}><Profile /></ProtectedRoute>} />

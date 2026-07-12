@@ -2,7 +2,8 @@ import { useState, useEffect } from "react";
 import { Save, User, Phone, MapPin, AlertCircle, CheckCircle, Briefcase, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
+import { api, ApiError } from "@/lib/api";
+import type { Professional } from "@/lib/types";
 import { useAuth } from "@/contexts/AuthContext";
 
 const formatCPF = (value: string) => {
@@ -69,25 +70,19 @@ const ProfileRegistrationForm = ({ onSave }: ProfileRegistrationFormProps) => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  // Load profile data
+  // Carrega os dados do profissional já disponíveis no AuthContext
   useEffect(() => {
-    if (!user) return;
-    const load = async () => {
-      const { data } = await supabase
-        .from("profiles")
-        .select("cpf, phone, address, cnpj, pix_key")
-        .eq("user_id", user.id)
-        .maybeSingle();
-      if (data) {
-        if (data.cpf) setCpf(formatCPF(data.cpf));
-        if (data.phone) setPhone(formatPhone(data.phone));
-        if (data.address) setAddress(data.address);
-        if (data.cnpj) setCnpj(formatCNPJ(data.cnpj));
-        if (data.pix_key) setPixKey(data.pix_key);
-      }
+    if (!user?.professional) {
       setLoading(false);
-    };
-    load();
+      return;
+    }
+    const p = user.professional;
+    if (p.cpf) setCpf(formatCPF(p.cpf));
+    if (p.phone) setPhone(formatPhone(p.phone));
+    if (p.address) setAddress(p.address);
+    if (p.cnpj) setCnpj(formatCNPJ(p.cnpj));
+    if (p.pix_key) setPixKey(p.pix_key);
+    setLoading(false);
   }, [user]);
 
   const isCpfValid = validateCPF(cpf);
@@ -99,23 +94,25 @@ const ProfileRegistrationForm = ({ onSave }: ProfileRegistrationFormProps) => {
   const isComplete = isCpfValid && isPixKeyValid && isPhoneValid && isAddressValid && isCnpjValid;
 
   const handleSave = async () => {
-    if (!isComplete || !user) return;
+    if (!isComplete || !user?.professional) return;
     setSaving(true);
-    const { error } = await supabase.rpc("update_own_profile", {
-      p_cpf: cpf.replace(/\D/g, ""),
-      p_phone: phone.replace(/\D/g, ""),
-      p_address: address.trim(),
-      p_cnpj: cnpjDigits || null,
-      p_pix_key: pixKey.trim() || null,
-    });
 
-    setSaving(false);
-    if (error) {
-      toast.error("Erro ao salvar cadastro. Tente novamente.");
-      return;
+    try {
+      await api.put<{ data: Professional }>(`/professionals/${user.professional.id}`, {
+        phone: phone.replace(/\D/g, ""),
+        address: address.trim(),
+        cnpj: cnpjDigits || null,
+        is_mei: cnpjDigits.length > 0,
+        pix_key: pixKey.trim() || null,
+      });
+      toast.success("Cadastro atualizado com sucesso!");
+      onSave?.();
+    } catch (error) {
+      const message = error instanceof ApiError ? error.message : "Erro ao salvar cadastro. Tente novamente.";
+      toast.error(message);
+    } finally {
+      setSaving(false);
     }
-    toast.success("Cadastro atualizado com sucesso!");
-    onSave?.();
   };
 
   const fieldStatus = (valid: boolean, value: string) => {

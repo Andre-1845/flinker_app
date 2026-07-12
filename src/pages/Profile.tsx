@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import BottomNav from "@/components/BottomNav";
 import RatingStars from "@/components/RatingStars";
+import { useAuth } from "@/contexts/AuthContext";
 
 const skills = ["Garçom", "Barista", "Atendimento", "Promotor", "Carga"];
 
@@ -55,8 +56,13 @@ const mockReputation = {
 
 const Profile = () => {
   const navigate = useNavigate();
+  const { user, signOut, refreshUser } = useAuth();
   const [userReviews, setUserReviews] = useState(reviews);
-  const [registrationComplete, setRegistrationComplete] = useState(false);
+
+  const professional = user?.professional;
+  const registrationComplete = Boolean(
+    professional && professional.address && professional.pix_key
+  );
 
   const toggleReviewVisibility = (id: number) => {
     setUserReviews(prev => prev.map(r => r.id === id ? { ...r, visible: !r.visible } : r));
@@ -70,7 +76,7 @@ const Profile = () => {
           <AvatarUpload initials="CS" size="md" />
         </div>
         <h1 className="mt-3 text-xl font-bold text-foreground inline-flex items-center gap-1.5 justify-center w-full">
-          Carlos Silva <VerifiedBadge size="md" />
+          {user?.name ?? "Profissional"} <VerifiedBadge size="md" />
         </h1>
         <div className="mt-1 flex items-center justify-center gap-2 text-sm text-muted-foreground">
           <MapPin className="h-4 w-4" />
@@ -140,7 +146,7 @@ const Profile = () => {
           {/* Cadastro Tab */}
           <TabsContent value="cadastro" className="mt-4">
             <ProfileRegistrationForm
-              onSave={() => setRegistrationComplete(true)}
+              onSave={() => refreshUser()}
             />
           </TabsContent>
 
@@ -337,7 +343,7 @@ const Profile = () => {
               <ChevronRight className="h-4 w-4 text-muted-foreground" />
             </button>
 
-            <button className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-destructive/10 p-3 text-sm font-medium text-destructive">
+            <button onClick={signOut} className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-destructive/10 p-3 text-sm font-medium text-destructive">
               <LogOut className="h-4 w-4" />
               Sair da conta
             </button>

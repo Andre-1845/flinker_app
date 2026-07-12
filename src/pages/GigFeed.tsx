@@ -3,8 +3,11 @@ import { Filter, Info, Loader2 } from "lucide-react";
 import SwipeableGigCard, { GigData } from "@/components/SwipeableGigCard";
 import BottomNav from "@/components/BottomNav";
 import GigFilters, { ActiveFiltersBanner, GigFilterValues, getDefaultFilters } from "@/components/GigFilters";
-import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { listActiveFlinks } from "@/lib/flinks";
+import { listMyMatches, expressInterest } from "@/lib/matches";
+import type { Flink } from "@/lib/types";
+import { ApiError } from "@/lib/api";
 import { toast } from "sonner";
 
 const STORAGE_KEY = "flinker_gig_filters";
@@ -42,6 +45,22 @@ function isFiltersActive(f: GigFilterValues): boolean {
   );
 }
 
+function flinkToGigData(flink: Flink): GigData {
+  return {
+    id: String(flink.id),
+    title: flink.activity_type,
+    company_name: flink.company?.responsible_name ?? "Empresa",
+    company_id: String(flink.company_id),
+    location: flink.location,
+    payment_amount: flink.pricing.net_value,
+    payment_type: "daily",
+    date_start: flink.start_date_time,
+    date_end: flink.end_date_time,
+    description: flink.requirements,
+    tags: null,
+  };
+}
+
 const GigFeed = () => {
   const { user } = useAuth();
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -53,182 +72,59 @@ const GigFeed = () => {
   const [dismissedGigIds, setDismissedGigIds] = useState<Set<string>>(() => {
     try {
       const saved = localStorage.getItem("flinker_dismissed_gigs");
-      if (saved) {
-        const ids = JSON.parse(saved) as string[];
-        // Don't persist mock dismissals across sessions
-        return new Set(ids.filter((id) => !id.startsWith("mock-")));
-      }
-      return new Set();
+      return saved ? new Set(JSON.parse(saved) as string[]) : new Set();
     } catch {
       return new Set();
     }
   });
 
-  // Fetch gigs from database
   useEffect(() => {
-    const fetchGigs = async () => {
-      if (!user) return;
-      setLoading(true);
-
-      // Fetch published gigs not created by the current user
-      const { data: gigsData, error } = await supabase
-        .from("gigs")
-        .select("*")
-        .eq("status", "published")
-        .neq("company_id", user.id)
-        .gte("date_end", new Date().toISOString())
-        .order("date_start", { ascending: true });
-
-      if (error) {
-        console.error("Error fetching gigs:", error);
-        setLoading(false);
-        return;
-      }
-
-      // Fetch already matched gig IDs to exclude them
-      const { data: matchedData } = await supabase
-        .from("gig_matches")
-        .select("gig_id")
-        .eq("worker_id", user.id);
-
-      const matchedGigIds = new Set((matchedData || []).map((m) => m.gig_id));
-
-      // Fetch company profiles for names
-      const companyIds = [...new Set((gigsData || []).map((g) => g.company_id))];
-      const { data: profiles } = await supabase
-        .from("profiles_public")
-        .select("user_id, full_name")
-        .in("user_id", companyIds.length > 0 ? companyIds : ["none"]);
-
-      const profileMap = new Map((profiles || []).map((p) => [p.user_id, p.full_name || "Empresa"]));
-
-      // Get match scores
-      const mapped: GigData[] = (gigsData || [])
-        .filter((g) => !matchedGigIds.has(g.id))
-        .map((g) => ({
-          id: g.id,
-          title: g.title,
-          company_name: profileMap.get(g.company_id) || "Empresa",
-          company_id: g.company_id,
-          location: g.location,
-          payment_amount: Number(g.payment_amount),
-          payment_type: g.payment_type,
-          date_start: g.date_start,
-          date_end: g.date_end,
-          description: g.description,
-          tags: g.tags,
-        }));
-
-      // Get match score for current user
-      if (mapped.length > 0) {
-        const { data: scoreData } = await supabase.rpc("get_match_score", {
-          p_user_id: user.id,
-        });
-        const baseScore = Number(scoreData) || 50;
-        mapped.forEach((g) => {
-          // Vary score slightly per gig for visual variety
-          g.match_score = Math.min(99, Math.max(60, Math.round(baseScore + (Math.random() * 10 - 5))));
-        });
-        // Sort by match score descending
-        mapped.sort((a, b) => (b.match_score || 0) - (a.match_score || 0));
-      }
-
-      // Fallback: if no real gigs, use mock data for prototype testing
-      if (mapped.length === 0) {
-        const now = new Date();
-        const tomorrow = new Date(now.getTime() + 86400000);
-        const mockGigs: GigData[] = [
-          {
-            id: "mock-1",
-            title: "Garçom para evento corporativo",
-            company_name: "Buffet Premium",
-            company_id: "mock-company-1",
-            location: "São Paulo, SP",
-            payment_amount: 180,
-            payment_type: "daily",
-            date_start: tomorrow.toISOString(),
-            date_end: new Date(tomorrow.getTime() + 28800000).toISOString(),
-            description: "Servir em evento corporativo de 200 pessoas. Experiência com serviço de mesa desejável.",
-            tags: ["garçom", "eventos", "corporativo"],
-            match_score: 92,
-          },
-          {
-            id: "mock-2",
-            title: "Auxiliar de cozinha – Festival",
-            company_name: "Gastrô Eventos",
-            company_id: "mock-company-2",
-            location: "Rio de Janeiro, RJ",
-            payment_amount: 25,
-            payment_type: "hourly",
-            date_start: new Date(now.getTime() + 172800000).toISOString(),
-            date_end: new Date(now.getTime() + 172800000 + 36000000).toISOString(),
-            description: "Auxiliar no preparo e montagem de pratos durante festival gastronômico.",
-            tags: ["cozinha", "festival", "gastronomia"],
-            match_score: 87,
-          },
-          {
-            id: "mock-3",
-            title: "Promotor de vendas – Shopping",
-            company_name: "MegaStore",
-            company_id: "mock-company-3",
-            location: "Belo Horizonte, MG",
-            payment_amount: 150,
-            payment_type: "daily",
-            date_start: new Date(now.getTime() + 259200000).toISOString(),
-            date_end: new Date(now.getTime() + 259200000 + 32400000).toISOString(),
-            description: "Abordagem de clientes e demonstração de produtos eletrônicos.",
-            tags: ["vendas", "promotor", "shopping"],
-            match_score: 81,
-          },
-          {
-            id: "mock-4",
-            title: "Barista para café especial",
-            company_name: "Café & Arte",
-            company_id: "mock-company-4",
-            location: "Curitiba, PR",
-            payment_amount: 22,
-            payment_type: "hourly",
-            date_start: new Date(now.getTime() + 345600000).toISOString(),
-            date_end: new Date(now.getTime() + 345600000 + 28800000).toISOString(),
-            description: "Preparo de cafés especiais e atendimento ao cliente em cafeteria artesanal.",
-            tags: ["barista", "café", "atendimento"],
-            match_score: 76,
-          },
-          {
-            id: "mock-5",
-            title: "Recepcionista para conferência",
-            company_name: "EventoPro",
-            company_id: "mock-company-5",
-            location: "São Paulo, SP",
-            payment_amount: 200,
-            payment_type: "daily",
-            date_start: new Date(now.getTime() + 432000000).toISOString(),
-            date_end: new Date(now.getTime() + 432000000 + 36000000).toISOString(),
-            description: "Recepcionar participantes, entregar crachás e orientar sobre a programação.",
-            tags: ["recepção", "conferência", "atendimento"],
-            match_score: 70,
-          },
-        ];
-        setGigs(mockGigs);
-      } else {
-        setGigs(mapped);
-      }
+    if (!user?.professional) {
       setLoading(false);
+      return;
+    }
+
+    const fetchGigs = async (coords?: { latitude: number; longitude: number }) => {
+      setLoading(true);
+      try {
+        const [flinksRes, matchesRes] = await Promise.all([
+          listActiveFlinks(
+            coords ? { latitude: coords.latitude, longitude: coords.longitude, radius_km: 50 } : undefined
+          ),
+          listMyMatches(),
+        ]);
+
+        const alreadyMatchedFlinkIds = new Set(matchesRes.data.map((m) => m.flink_id));
+        const available = flinksRes.data.filter((f) => !alreadyMatchedFlinkIds.has(f.id));
+
+        setGigs(available.map(flinkToGigData));
+      } catch (error) {
+        toast.error("Não foi possível carregar os Flinks disponíveis.");
+      } finally {
+        setLoading(false);
+      }
     };
 
-    fetchGigs();
+    // Tenta usar a localização do dispositivo para priorizar Flinks próximos;
+    // se o usuário negar a permissão, busca sem filtro de distância.
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => fetchGigs({ latitude: position.coords.latitude, longitude: position.coords.longitude }),
+        () => fetchGigs(),
+        { timeout: 5000 }
+      );
+    } else {
+      fetchGigs();
+    }
   }, [user]);
 
-  // Filter gigs
   const filteredGigs = useMemo(() => {
     let result = gigs.filter((g) => !dismissedGigIds.has(g.id));
 
-    // Value filter
     result = result.filter(
       (g) => g.payment_amount >= filters.minValue && (filters.maxValue >= 500 || g.payment_amount <= filters.maxValue)
     );
 
-    // Keyword filter
     if (filters.keywords.trim()) {
       const kw = filters.keywords.toLowerCase().trim();
       result = result.filter(
@@ -239,13 +135,11 @@ const GigFeed = () => {
       );
     }
 
-    // City filter
     if (filters.city.trim()) {
       const city = filters.city.toLowerCase().trim();
       result = result.filter((g) => (g.location || "").toLowerCase().includes(city));
     }
 
-    // Date filter
     if (filters.dateFrom) {
       const from = filters.dateFrom.getTime();
       result = result.filter((g) => new Date(g.date_start).getTime() >= from);
@@ -258,65 +152,34 @@ const GigFeed = () => {
     return result;
   }, [gigs, filters, dismissedGigIds]);
 
-  const handleAccept = async (gig: GigData) => {
-    if (!user || isSubmitting) return;
-    setIsSubmitting(true);
-
-    try {
-      // Create gig_match record
-      const { error: matchError } = await supabase.from("gig_matches").insert({
-        gig_id: gig.id,
-        worker_id: user.id,
-        company_id: gig.company_id,
-        worker_accepted: true,
-        worker_accepted_at: new Date().toISOString(),
-        status: "matched",
-      });
-
-      if (matchError) {
-        console.error("Match error:", matchError);
-        toast.error("Erro ao aceitar o flink. Tente novamente.");
-        setIsSubmitting(false);
-        return;
-      }
-
-      // Notify the company
-      await supabase.rpc("create_notification", {
-        p_user_id: gig.company_id,
-        p_type: "new_match",
-        p_title: "Novo interesse em seu Flink!",
-        p_body: `Um profissional se interessou pelo flink "${gig.title}". Acesse Matches para aceitar.`,
-        p_data: { gig_id: gig.id, worker_id: user.id },
-      });
-
-      toast.success("Flink aceito! Aguardando confirmação da empresa.", {
-        icon: "🎉",
-      });
-
-      // Dismiss and advance
-      setDismissedGigIds((prev) => {
-        const next = new Set(prev);
-        next.add(gig.id);
-        localStorage.setItem("flinker_dismissed_gigs", JSON.stringify([...next]));
-        return next;
-      });
-      setCurrentIndex((prev) => prev + 1);
-    } catch (err) {
-      console.error("Unexpected error:", err);
-      toast.error("Erro inesperado. Tente novamente.");
-    }
-
-    setIsSubmitting(false);
-  };
-
-  const handleReject = (gig: GigData) => {
+  const dismissGig = (id: string) => {
     setDismissedGigIds((prev) => {
       const next = new Set(prev);
-      next.add(gig.id);
+      next.add(id);
       localStorage.setItem("flinker_dismissed_gigs", JSON.stringify([...next]));
       return next;
     });
     setCurrentIndex((prev) => prev + 1);
+  };
+
+  const handleAccept = async (gig: GigData) => {
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+
+    try {
+      await expressInterest(Number(gig.id));
+      toast.success("Interesse enviado! Aguardando a empresa escolher.", { icon: "🎉" });
+      dismissGig(gig.id);
+    } catch (error) {
+      const message = error instanceof ApiError ? error.message : "Erro ao demonstrar interesse. Tente novamente.";
+      toast.error(message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleReject = (gig: GigData) => {
+    dismissGig(gig.id);
   };
 
   const handleApplyFilters = (f: GigFilterValues) => {
@@ -353,7 +216,6 @@ const GigFeed = () => {
           </button>
         </div>
 
-        {/* Active filters banner */}
         {hasActiveFilters ? (
           <ActiveFiltersBanner filters={filters} onClear={handleClearFilters} />
         ) : (

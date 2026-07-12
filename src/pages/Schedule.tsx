@@ -1,51 +1,48 @@
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Calendar, Clock, MapPin, ChevronLeft, ChevronRight, AlertCircle, MessageSquare } from "lucide-react";
 import BottomNav from "@/components/BottomNav";
 import { containsBlockedContent, getFilterWarning } from "@/lib/chatFilter";
+import { listMyMatches } from "@/lib/matches";
+import type { FlinkMatch } from "@/lib/types";
 import { toast } from "sonner";
 
-const mockSchedule = [
-  {
-    id: "s1",
-    title: "Garçom para Casamento",
-    company: "Festa & Cia",
-    location: "Vila Olímpia, SP",
-    date: "2026-04-20",
-    time: "16h-00h",
-    payment: "R$ 220",
-    status: "confirmed" as const,
-  },
-  {
-    id: "s2",
-    title: "Promotor de Vendas",
-    company: "SuperMart",
-    location: "Centro, SP",
-    date: "2026-04-16",
-    time: "9h-18h",
-    payment: "R$ 120",
-    status: "pending" as const,
-  },
-  {
-    id: "s3",
-    title: "Recepcionista Tech",
-    company: "TechConf",
-    location: "Faria Lima, SP",
-    date: "2026-04-22",
-    time: "8h-17h",
-    payment: "R$ 160",
-    status: "in_progress" as const,
-  },
-  {
-    id: "s4",
-    title: "Barista Café Premium",
-    company: "CaféTop",
-    location: "Pinheiros, SP",
-    date: "2026-04-10",
-    time: "7h-15h",
-    payment: "R$ 140",
-    status: "cancelled" as const,
-  },
-];
+interface ScheduleItem {
+  id: number;
+  title: string;
+  company: string;
+  location: string;
+  date: string;
+  time: string;
+  payment: string;
+  status: "pending" | "confirmed" | "in_progress" | "cancelled";
+}
+
+function matchToScheduleItem(match: FlinkMatch): ScheduleItem | null {
+  const flink = match.flink;
+  if (!flink) return null;
+
+  const start = new Date(flink.start_date_time);
+  const end = new Date(flink.end_date_time);
+  const fmtTime = (d: Date) => d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+
+  let status: ScheduleItem["status"] = "pending";
+  if (match.status === "confirmed") {
+    status = flink.status === "in_progress" || flink.status === "completed" ? "in_progress" : "confirmed";
+  } else if (match.status === "rejected" || match.status === "cancelled") {
+    status = "cancelled";
+  }
+
+  return {
+    id: match.id,
+    title: flink.activity_type,
+    company: flink.company?.responsible_name ?? "Empresa",
+    location: flink.location,
+    date: flink.start_date_time.slice(0, 10),
+    time: `${fmtTime(start)}-${fmtTime(end)}`,
+    payment: `R$ ${flink.pricing.net_value.toFixed(2)}`,
+    status,
+  };
+}
 
 const conversations = [
   { id: 1, name: "Festa & Cia", lastMessage: "Ótimo, te esperamos às 16h!", time: "14:30", unread: 2, avatar: "FC", flinkTitle: "Garçom para Casamento" },
@@ -66,19 +63,30 @@ const weekdays = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 const Schedule = () => {
   const [activeTab, setActiveTab] = useState<"agenda" | "chat">("agenda");
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
-  const [currentMonth, setCurrentMonth] = useState(3);
-  const [currentYear, setCurrentYear] = useState(2026);
+  const [currentMonth, setCurrentMonth] = useState(new Date().getMonth());
+  const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
   const [selectedChat, setSelectedChat] = useState<number | null>(null);
   const [message, setMessage] = useState("");
   const [blocked, setBlocked] = useState(false);
+  const [schedule, setSchedule] = useState<ScheduleItem[]>([]);
+
+  useEffect(() => {
+    listMyMatches()
+      .then((res) => {
+        const items = res.data.map(matchToScheduleItem).filter((i): i is ScheduleItem => i !== null);
+        setSchedule(items);
+      })
+      .catch(() => toast.error("Não foi possível carregar sua agenda."));
+  }, []);
 
   const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
   const firstDay = new Date(currentYear, currentMonth, 1).getDay();
-  const flinkDates = new Set(mockSchedule.filter(s => s.status !== "cancelled").map(s => s.date));
+  const flinkDates = new Set(schedule.filter(s => s.status !== "cancelled").map(s => s.date));
 
-  const filteredFlinks = selectedDate
-    ? mockSchedule.filter((g) => g.date === selectedDate)
-    : mockSchedule;
+  const filteredFlinks = useMemo(
+    () => (selectedDate ? schedule.filter((g) => g.date === selectedDate) : schedule),
+    [schedule, selectedDate]
+  );
 
   const prevMonth = () => {
     if (currentMonth === 0) { setCurrentMonth(11); setCurrentYear(y => y - 1); }

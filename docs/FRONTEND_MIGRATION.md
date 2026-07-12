@@ -77,18 +77,57 @@ Se não for definida, `src/lib/api.ts` usa esse valor como padrão.
   similar, com lógica de sugestão/ranking) antes de migrar essa tela — ainda não construído.
   Por enquanto continua mock, sinalizada no código.
 
+## Etapa 3 — Telas do profissional (concluída)
+
+- `src/lib/matches.ts` — novo serviço com as chamadas de Match (`listMyMatches`,
+  `expressInterest`, `acceptMatch`, `confirmMatch`, `checkInMatch`, `cancelMatch`).
+- `src/lib/schedule.ts` — novo serviço com as chamadas de Agenda (`listMySchedule`,
+  `blockSchedule`).
+- `src/pages/GigFeed.tsx` — reescrito. Busca Flinks ativos via `GET /flinks/active`
+  (tenta usar a geolocalização do navegador pra priorizar por proximidade; se o
+  usuário negar a permissão, busca sem filtro de distância), exclui Flinks em que o
+  profissional já demonstrou interesse. "Aceitar" (swipe direita) chama `expressInterest`.
+  Removido o fallback de dados mock que existia antes.
+- `src/pages/Matches.tsx` — reescrito. Lista via `GET /matches`, "Confirmar Aceite" chama
+  `confirmMatch`, cancelamento chama `cancelMatch`. Simplificado o enum de status pra bater
+  com o backend (`pending`/`accepted`/`confirmed`/`rejected`/`cancelled` — os status fictícios
+  do mock como `partially_accepted`/`in_progress`/`paid` foram removidos). Adicionado botão
+  "Fazer Check-in" quando o match está confirmado e ainda não teve check-in.
+- `src/pages/GigCheckIn.tsx` — reescrito. **Antes fazia todo o cálculo de distância só no
+  cliente, contra um local mockado, e nunca chamava nenhum backend** (o check-in nunca era
+  salvo de verdade). Agora recebe o `matchId` pela rota (`/gig-checkin/:matchId`), busca o
+  match real e chama `POST /matches/{id}/checkin` — a validação de distância roda no
+  servidor (`GeoDistanceService`).
+- `src/pages/Schedule.tsx` — a aba "Agenda" agora busca os matches reais (`GET /matches`) e
+  monta o calendário a partir deles. **A aba "Chat" continua mock** — não existe sistema de
+  mensagens no backend ainda (fora do MVP por enquanto).
+- `src/pages/WorkerDashboard.tsx` — reescrito. Nome e reputação reais do usuário, contagem
+  de Flinks concluídos via matches, Flinks recomendados via `GET /flinks/active`, card "hoje"
+  aponta pro check-in do próximo match confirmado. Saldo/carteira continua "Em breve"
+  (depende da Fase 4 do backend).
+- `src/pages/Profile.tsx` — wiring mínimo: nome real do usuário, `registrationComplete`
+  derivado de `professional.address`/`pix_key`, botão "Sair da conta" conectado ao `signOut`
+  (antes não tinha nenhum `onClick`!). **Avaliações, badges e gamificação continuam mock**
+  (não há backend de reputação/avaliações ainda — Fase 5).
+- `src/components/ProfileRegistrationForm.tsx` — mesmo padrão do `CompanyRegistrationForm`:
+  troca de `supabase.rpc` por `PUT /api/professionals/{id}`.
+
+Depois da Etapa 3, `grep -rl "supabase" src/` só retorna `ForgotPassword.tsx` e
+`ResetPassword.tsx` — já documentados como bloqueados abaixo.
+
 ## Roteiro das próximas etapas
 
 | Etapa | Telas | Depende de (backend) |
 |---|---|---|
 | 2 ✅ | `CompanyDashboard`, `CreateFlink` (nova), `CompanyProfile`, `CompanyRegistrationForm` | Fase 2 (Flink) — já pronto |
-| 3 | `GigFeed`, `Matches`, `GigCheckIn`, `Schedule`, `WorkerDashboard`, `WorkerPublicProfile`, `Profile`, `ProfileRegistrationForm` | Fase 3 (Match/Agenda/Check-in) — já pronto |
+| 3 ✅ | `GigFeed`, `Matches`, `GigCheckIn`, `Schedule` (agenda), `WorkerDashboard`, `Profile`, `ProfileRegistrationForm` | Fase 3 (Match/Agenda/Check-in) — já pronto |
 | 4 | `Wallet`, `CompanyWallet`, `FinancialHistory` | Fase 4 do backend (Carteira/Mercado Pago) — **ainda não construída** |
 | 5 | Reputação/avaliações (sem tela dedicada ainda identificada — a mapear) | Fase 5 do backend — **ainda não construída** |
 | 6 | `AdminPanel` | Fase 6 do backend — **ainda não construída** |
 | — | `Training`, `TrainingFeed` | Módulo fora do MVP por decisão registrada em `docs/ARCHITECTURE.md` do backend — aguardando definição de escopo |
 | — | `VerificationSubscription` | Não mapeado na spec original — avaliar se entra no MVP |
 | — | `Chat` | Não mapeado na spec original — avaliar se entra no MVP |
+| — | `WorkerPublicProfile` | Tela pública de perfil — continua mock, sem endpoint público dedicado ainda |
 | — | `ForgotPassword`, `ResetPassword` | Precisa de endpoint novo no backend (não existe ainda) |
 | — | `CompanyGigFeed` (swipe em profissionais) | Feature mantida no roadmap — precisa de endpoint novo de sugestão/ranking de profissionais (ainda não construído) |
 

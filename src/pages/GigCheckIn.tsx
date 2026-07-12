@@ -1,42 +1,51 @@
 import { useState, useEffect, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { MapPin, CheckCircle, XCircle, Loader2, Navigation, Clock, ArrowLeft, Shield, Wifi } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { getFlink } from "@/lib/flinks";
+import { checkInMatch, listMyMatches } from "@/lib/matches";
+import { ApiError } from "@/lib/api";
+import type { FlinkMatch } from "@/lib/types";
 
-type CheckInStatus = "idle" | "locating" | "success" | "too_far" | "error" | "denied";
-
-// Mock flink location (Vila Olímpia, SP)
-const FLINK_LOCATION = { lat: -23.5958, lng: -46.6862 };
-const MAX_DISTANCE_METERS = 200;
-
-const haversineDistance = (
-  lat1: number, lon1: number, lat2: number, lon2: number
-): number => {
-  const R = 6371e3;
-  const toRad = (d: number) => (d * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-};
+type CheckInStatus = "loading" | "idle" | "locating" | "success" | "too_far" | "error" | "denied" | "not_allowed";
 
 const GigCheckIn = () => {
   const navigate = useNavigate();
-  const [status, setStatus] = useState<CheckInStatus>("idle");
-  const [distance, setDistance] = useState<number | null>(null);
+  const { matchId } = useParams<{ matchId: string }>();
+  const [status, setStatus] = useState<CheckInStatus>("loading");
+  const [match, setMatch] = useState<FlinkMatch | null>(null);
   const [accuracy, setAccuracy] = useState<number | null>(null);
   const [checkedInAt, setCheckedInAt] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const flinkInfo = {
-    title: "Garçom VIP",
-    company: "Eventos Premium",
-    location: "Vila Olímpia, SP",
-    time: "18h - 23h",
-    payment: "R$ 200",
-  };
+  useEffect(() => {
+    if (!matchId) {
+      setStatus("not_allowed");
+      return;
+    }
+
+    // A API não tem "GET /matches/{id}" direto, então buscamos na lista do usuário.
+    listMyMatches()
+      .then((res) => {
+        const found = res.data.find((m) => m.id === Number(matchId));
+        if (!found) {
+          setStatus("not_allowed");
+          return;
+        }
+        if (found.status !== "confirmed") {
+          setStatus("not_allowed");
+          setErrorMessage("Este match ainda não foi confirmado, então o check-in não está liberado.");
+          return;
+        }
+        setMatch(found);
+        setStatus(found.checked_in_at ? "success" : "idle");
+        if (found.checked_in_at) {
+          setCheckedInAt(new Date(found.checked_in_at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }));
+        }
+      })
+      .catch(() => setStatus("error"));
+  }, [matchId]);
 
   const attemptCheckIn = useCallback(() => {
     if (!navigator.geolocation) {
@@ -44,23 +53,30 @@ const GigCheckIn = () => {
       toast.error("Geolocalização não suportada neste dispositivo.");
       return;
     }
+    if (!matchId) return;
 
     setStatus("locating");
 
     navigator.geolocation.getCurrentPosition(
-      (position) => {
+      async (position) => {
         const { latitude, longitude, accuracy: acc } = position.coords;
-        const dist = haversineDistance(latitude, longitude, FLINK_LOCATION.lat, FLINK_LOCATION.lng);
-        setDistance(Math.round(dist));
         setAccuracy(Math.round(acc));
 
-        if (dist <= MAX_DISTANCE_METERS) {
+        try {
+          const updated = await checkInMatch(Number(matchId), latitude, longitude);
+          setMatch(updated);
           setStatus("success");
           setCheckedInAt(new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }));
           toast.success("Check-in realizado com sucesso!");
-        } else {
-          setStatus("too_far");
-          toast.error(`Você está a ${Math.round(dist)}m do local. Aproxime-se para fazer check-in.`);
+        } catch (error) {
+          if (error instanceof ApiError && error.status === 422) {
+            setStatus("too_far");
+            setErrorMessage(error.fieldError("location") ?? error.message);
+            toast.error(error.message);
+          } else {
+            setStatus("error");
+            toast.error("Erro ao registrar o check-in. Tente novamente.");
+          }
         }
       },
       (error) => {
@@ -74,9 +90,21 @@ const GigCheckIn = () => {
       },
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
     );
-  }, []);
+  }, [matchId]);
 
   const statusContent: Record<CheckInStatus, { icon: React.ReactNode; title: string; description: string; color: string }> = {
+    loading: {
+      icon: <Loader2 className="h-10 w-10 animate-spin text-primary" />,
+      title: "Carregando...",
+      description: "Buscando os dados do seu match.",
+      color: "border-border",
+    },
+    not_allowed: {
+      icon: <XCircle className="h-10 w-10 text-destructive" />,
+      title: "Check-in não disponível",
+      description: errorMessage ?? "Não foi possível encontrar esse match, ou ele ainda não está confirmado.",
+      color: "border-destructive/30",
+    },
     idle: {
       icon: <MapPin className="h-10 w-10 text-primary" />,
       title: "Pronto para o Check-in",
@@ -92,13 +120,13 @@ const GigCheckIn = () => {
     success: {
       icon: <CheckCircle className="h-10 w-10 text-success" />,
       title: "Check-in Confirmado!",
-      description: `Presença registrada às ${checkedInAt}. Bom trabalho!`,
+      description: checkedInAt ? `Presença registrada às ${checkedInAt}. Bom trabalho!` : "Presença registrada. Bom trabalho!",
       color: "border-success/30",
     },
     too_far: {
       icon: <Navigation className="h-10 w-10 text-warning" />,
       title: "Muito longe do local",
-      description: `Você está a ${distance}m. Aproxime-se até ${MAX_DISTANCE_METERS}m para fazer check-in.`,
+      description: errorMessage ?? "Aproxime-se do local do Flink para fazer check-in.",
       color: "border-warning/30",
     },
     error: {
@@ -116,10 +144,10 @@ const GigCheckIn = () => {
   };
 
   const current = statusContent[status];
+  const flink = match?.flink;
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Header */}
       <div className="gradient-navy px-5 pb-6 pt-12">
         <div className="flex items-center gap-3">
           <button onClick={() => navigate(-1)} className="rounded-full bg-secondary p-2">
@@ -133,39 +161,39 @@ const GigCheckIn = () => {
       </div>
 
       <div className="px-5 pt-6">
-        {/* Flink Info Card */}
-        <div className="rounded-2xl border border-border bg-card p-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl gradient-primary">
-              <MapPin className="h-6 w-6 text-primary-foreground" />
+        {flink && (
+          <div className="rounded-2xl border border-border bg-card p-4">
+            <div className="flex items-center gap-3">
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl gradient-primary">
+                <MapPin className="h-6 w-6 text-primary-foreground" />
+              </div>
+              <div className="flex-1">
+                <h3 className="font-bold text-foreground">{flink.activity_type}</h3>
+                <p className="text-xs text-muted-foreground">{flink.company?.responsible_name ?? "Empresa"}</p>
+              </div>
+              <div className="text-right">
+                <p className="text-sm font-bold text-foreground">R$ {flink.pricing.net_value.toFixed(2)}</p>
+              </div>
             </div>
-            <div className="flex-1">
-              <h3 className="font-bold text-foreground">{flinkInfo.title}</h3>
-              <p className="text-xs text-muted-foreground">{flinkInfo.company}</p>
-            </div>
-            <div className="text-right">
-              <p className="text-sm font-bold text-foreground">{flinkInfo.payment}</p>
+            <div className="mt-3 flex items-center gap-4 text-xs text-muted-foreground">
+              <div className="flex items-center gap-1">
+                <MapPin className="h-3.5 w-3.5 text-primary" />
+                <span>{flink.location}</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <Clock className="h-3.5 w-3.5 text-primary" />
+                <span>{new Date(flink.start_date_time).toLocaleString("pt-BR")}</span>
+              </div>
             </div>
           </div>
-          <div className="mt-3 flex items-center gap-4 text-xs text-muted-foreground">
-            <div className="flex items-center gap-1">
-              <MapPin className="h-3.5 w-3.5 text-primary" />
-              <span>{flinkInfo.location}</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <Clock className="h-3.5 w-3.5 text-primary" />
-              <span>{flinkInfo.time}</span>
-            </div>
-          </div>
-        </div>
+        )}
 
-        {/* Status Card */}
         <div className={`mt-6 flex flex-col items-center rounded-2xl border bg-card p-8 text-center transition-colors ${current.color}`}>
           {current.icon}
           <h2 className="mt-4 text-lg font-bold text-foreground">{current.title}</h2>
           <p className="mt-2 max-w-xs text-sm text-muted-foreground">{current.description}</p>
 
-          {accuracy !== null && status !== "idle" && (
+          {accuracy !== null && !["idle", "loading", "not_allowed"].includes(status) && (
             <div className="mt-3 flex items-center gap-1 text-[10px] text-muted-foreground">
               <Wifi className="h-3 w-3" />
               <span>Precisão GPS: ~{accuracy}m</span>
@@ -173,7 +201,6 @@ const GigCheckIn = () => {
           )}
         </div>
 
-        {/* Action Button */}
         <div className="mt-8">
           {status === "success" ? (
             <Button
@@ -182,6 +209,10 @@ const GigCheckIn = () => {
             >
               <CheckCircle className="h-5 w-5" />
               Voltar ao Início
+            </Button>
+          ) : status === "not_allowed" || status === "loading" ? (
+            <Button onClick={() => navigate("/matches")} className="w-full rounded-xl py-6 text-base font-bold">
+              Voltar aos Matches
             </Button>
           ) : (
             <Button
@@ -204,28 +235,6 @@ const GigCheckIn = () => {
           )}
         </div>
 
-        {/* Distance indicator */}
-        {distance !== null && status !== "success" && (
-          <div className="mt-4 rounded-xl bg-secondary p-4">
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">Distância do local</span>
-              <span className={`font-bold ${distance <= MAX_DISTANCE_METERS ? "text-success" : "text-warning"}`}>
-                {distance}m
-              </span>
-            </div>
-            <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-muted">
-              <div
-                className={`h-full rounded-full transition-all ${distance <= MAX_DISTANCE_METERS ? "bg-success" : "bg-warning"}`}
-                style={{ width: `${Math.max(5, Math.min(100, (1 - distance / 1000) * 100))}%` }}
-              />
-            </div>
-            <p className="mt-1.5 text-[10px] text-muted-foreground">
-              Máximo permitido: {MAX_DISTANCE_METERS}m do local
-            </p>
-          </div>
-        )}
-
-        {/* Tips */}
         <div className="mt-6 space-y-2 pb-8">
           <p className="text-xs font-semibold text-muted-foreground">DICAS</p>
           <div className="flex items-start gap-2 text-xs text-muted-foreground">
@@ -238,7 +247,7 @@ const GigCheckIn = () => {
           </div>
           <div className="flex items-start gap-2 text-xs text-muted-foreground">
             <span className="mt-0.5 text-primary">•</span>
-            <span>O check-in deve ser feito no raio de {MAX_DISTANCE_METERS}m</span>
+            <span>A validação da distância é feita pelo servidor no momento do check-in</span>
           </div>
         </div>
       </div>
