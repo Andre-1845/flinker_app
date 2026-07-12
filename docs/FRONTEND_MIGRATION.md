@@ -71,12 +71,11 @@ Se não for definida, `src/lib/api.ts` usa esse valor como padrão.
 - `src/pages/CompanyDashboard.tsx` — reescrito para buscar os Flinks reais da empresa
   (`GET /api/flinks/company/{id}`) em vez de estatísticas e "profissionais sugeridos"
   mockados. Botão de publicar Flink agora navega para `/company-flinks/new`.
-- **`src/pages/CompanyGigFeed.tsx` — ainda 100% mock, sinalizada no código.** Essa tela deixa
-  a empresa "dar swipe" em profissionais diretamente, sem depender de um Flink publicado.
-  Isso não existe no backend (lá o fluxo é sempre profissional→interesse→empresa aceita).
-  **Precisa de uma decisão de produto** antes de migrar: vira uma feature nova (endpoint
-  de "sugestão de profissionais" independente de Flink) ou é descontinuada em favor do
-  fluxo de Match já existente?
+- **`src/pages/CompanyGigFeed.tsx` — ainda 100% mock.** Decisão tomada: **essa feature fica
+  no roadmap** (empresa "dá swipe" em profissionais direto, sem depender de um Flink
+  publicado). Precisa de um endpoint novo no backend (ex: `GET /professionals/suggested` ou
+  similar, com lógica de sugestão/ranking) antes de migrar essa tela — ainda não construído.
+  Por enquanto continua mock, sinalizada no código.
 
 ## Roteiro das próximas etapas
 
@@ -91,7 +90,7 @@ Se não for definida, `src/lib/api.ts` usa esse valor como padrão.
 | — | `VerificationSubscription` | Não mapeado na spec original — avaliar se entra no MVP |
 | — | `Chat` | Não mapeado na spec original — avaliar se entra no MVP |
 | — | `ForgotPassword`, `ResetPassword` | Precisa de endpoint novo no backend (não existe ainda) |
-| — | `CompanyGigFeed` (swipe em profissionais) | **Precisa de decisão de produto** — não existe no fluxo do backend atual |
+| — | `CompanyGigFeed` (swipe em profissionais) | Feature mantida no roadmap — precisa de endpoint novo de sugestão/ranking de profissionais (ainda não construído) |
 
 ## Mapeamento de nomenclatura (Supabase → Laravel)
 
