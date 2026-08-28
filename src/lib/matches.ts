@@ -25,6 +25,16 @@ export async function checkInMatch(matchId: number, latitude: number, longitude:
   return response.data;
 }
 
+/**
+ * Confirmação do profissional de que o serviço foi executado. O Flink só é
+ * marcado como concluído (e o pagamento liberado) quando a empresa também
+ * confirmar — ver PUT /flinks/{id}/complete e ConfirmCompletionAction no backend.
+ */
+export async function confirmMatchCompletion(matchId: number): Promise<FlinkMatch> {
+  const response = await api.put<{ data: FlinkMatch }>(`/matches/${matchId}/confirm-completion`);
+  return response.data;
+}
+
 export async function cancelMatch(matchId: number): Promise<FlinkMatch> {
   const response = await api.put<{ data: FlinkMatch }>(`/matches/${matchId}/cancel`);
   return response.data;

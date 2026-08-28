@@ -12,6 +12,11 @@ dist
 dist-ssr
 *.local
 
+# .env tinha credenciais reais do Supabase commitadas no histórico (achado da
+# auditoria) — daqui pra frente só .env.example vai pro repo.
+.env
+.env.local
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

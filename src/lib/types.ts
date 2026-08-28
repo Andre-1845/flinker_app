@@ -79,6 +79,11 @@ export interface FlinkMatch {
   status: MatchStatus;
   status_label: string;
   checked_in_at: string | null;
+  // Conclusão dupla (ver auditoria/backend ConfirmCompletionAction): os dois
+  // lados confirmam a execução; se só um confirmar, o backend auto-completa
+  // depois de FLINKER_AUTO_COMPLETE_HOURS.
+  professional_confirmed_at: string | null;
+  company_confirmed_at: string | null;
   flink?: Flink;
   professional?: Professional;
   created_at: string;

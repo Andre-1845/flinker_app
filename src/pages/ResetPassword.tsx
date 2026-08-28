@@ -1,64 +1,64 @@
-import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Lock, ArrowLeft, CheckCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { supabase } from "@/integrations/supabase/client";
+import { api, ApiError } from "@/lib/api";
 import { toast } from "sonner";
 import logo from "@/assets/flinker-logo.png";
 
 const ResetPassword = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  // O backend monta o link do e-mail como /reset-password?token=...&email=...
+  // (ver AppServiceProvider::boot -> ResetPassword::createUrlUsing). Sem os
+  // dois, não tem como chamar POST /auth/reset-password.
+  const token = searchParams.get("token");
+  const email = searchParams.get("email");
+  const hasValidLink = Boolean(token && email);
+
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [success, setSuccess] = useState(false);
-  const [hasSession, setHasSession] = useState(false);
-
-  useEffect(() => {
-    // Check for recovery session from the URL hash
-    const hashParams = new URLSearchParams(window.location.hash.substring(1));
-    const type = hashParams.get("type");
-
-    if (type === "recovery") {
-      setHasSession(true);
-    }
-
-    // Also listen for auth state changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-      if (event === "PASSWORD_RECOVERY") {
-        setHasSession(true);
-      }
-    });
-
-    return () => subscription.unsubscribe();
-  }, []);
 
   const handleUpdate = async () => {
     if (!password || !confirmPassword) {
       toast.error("Preencha todos os campos");
       return;
     }
-    if (password.length < 6) {
-      toast.error("A senha deve ter pelo menos 6 caracteres");
+    if (password.length < 8) {
+      toast.error("A senha deve ter pelo menos 8 caracteres");
       return;
     }
     if (password !== confirmPassword) {
       toast.error("As senhas não conferem");
       return;
     }
-
-    setIsLoading(true);
-    const { error } = await supabase.auth.updateUser({ password });
-    setIsLoading(false);
-
-    if (error) {
-      toast.error("Erro ao atualizar senha. Tente novamente.");
+    if (!token || !email) {
+      toast.error("Link inválido ou expirado");
       return;
     }
 
-    setSuccess(true);
-    toast.success("Senha atualizada com sucesso!");
+    setIsLoading(true);
+    try {
+      await api.post("/auth/reset-password", {
+        token,
+        email,
+        password,
+        password_confirmation: confirmPassword,
+      });
+      setSuccess(true);
+      toast.success("Senha atualizada com sucesso!");
+    } catch (e) {
+      const message =
+        e instanceof ApiError
+          ? e.message
+          : "Erro ao atualizar senha. Tente novamente.";
+      toast.error(message);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   if (success) {
@@ -83,7 +83,7 @@ const ResetPassword = () => {
     );
   }
 
-  if (!hasSession) {
+  if (!hasValidLink) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-background px-6">
         <div className="w-full max-w-sm text-center space-y-4">
