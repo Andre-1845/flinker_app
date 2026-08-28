@@ -1,0 +1,14 @@
+# Preview local do build de produção do frontend, servido pelo mesmo Nginx
+# que roda no deploy real — útil pra conferir o build antes de subir, sem
+# depender do servidor de dev do Vite.
+#
+# Uso: VITE_API_URL=http://localhost:8000/api docker compose up -d --build
+services:
+  web:
+    build:
+      context: .
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:8000/api}
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-8080}:80"

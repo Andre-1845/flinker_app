@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Mail, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { supabase } from "@/integrations/supabase/client";
+import { api, ApiError } from "@/lib/api";
 import { toast } from "sonner";
 import logo from "@/assets/flinker-logo.png";
 
@@ -19,17 +19,18 @@ const ForgotPassword = () => {
       return;
     }
     setIsLoading(true);
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/reset-password`,
-    });
-    setIsLoading(false);
-
-    if (error) {
-      toast.error("Erro ao enviar link. Verifique o e-mail informado.");
-      return;
+    try {
+      // O backend responde com sucesso genérico mesmo se o e-mail não existir
+      // (evita revelar quais e-mails estão cadastrados) — ver AuthController::forgotPassword.
+      await api.post("/auth/forgot-password", { email });
+      setSent(true);
+      toast.success("Link de recuperação enviado!");
+    } catch (e) {
+      const message = e instanceof ApiError ? e.message : "Erro ao enviar link. Tente novamente.";
+      toast.error(message);
+    } finally {
+      setIsLoading(false);
     }
-    setSent(true);
-    toast.success("Link de recuperação enviado!");
   };
 
   return (

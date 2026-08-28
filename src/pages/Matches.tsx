@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import BottomNav from "@/components/BottomNav";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
-import { listMyMatches, confirmMatch, cancelMatch } from "@/lib/matches";
+import { listMyMatches, confirmMatch, cancelMatch, confirmMatchCompletion } from "@/lib/matches";
 import type { FlinkMatch, MatchStatus } from "@/lib/types";
 import { ApiError } from "@/lib/api";
 
@@ -22,6 +22,7 @@ const Matches = () => {
   const [matches, setMatches] = useState<FlinkMatch[]>([]);
   const [loading, setLoading] = useState(true);
   const [cancelDialog, setCancelDialog] = useState<number | null>(null);
+  const [completeDialog, setCompleteDialog] = useState<number | null>(null);
   const [actingOn, setActingOn] = useState<number | null>(null);
 
   const loadMatches = () => {
@@ -44,6 +45,21 @@ const Matches = () => {
       loadMatches();
     } catch (error) {
       const message = error instanceof ApiError ? error.message : "Erro ao confirmar. Tente novamente.";
+      toast.error(message);
+    } finally {
+      setActingOn(null);
+    }
+  };
+
+  const handleConfirmCompletion = async (matchId: number) => {
+    setActingOn(matchId);
+    try {
+      await confirmMatchCompletion(matchId);
+      setCompleteDialog(null);
+      toast.success("Conclusão confirmada! Assim que a empresa também confirmar, o pagamento é liberado.");
+      loadMatches();
+    } catch (error) {
+      const message = error instanceof ApiError ? error.message : "Erro ao confirmar conclusão. Tente novamente.";
       toast.error(message);
     } finally {
       setActingOn(null);
@@ -100,6 +116,12 @@ const Matches = () => {
             const needsConfirm = match.status === "accepted";
             const chatAllowed = match.status === "confirmed";
             const canCheckIn = match.status === "confirmed" && !match.checked_in_at;
+            const flinkStatus = match.flink?.status;
+            const isFlinkDone = flinkStatus === "completed" || flinkStatus === "cancelled";
+            const canConfirmCompletion =
+              match.status === "confirmed" && !!match.checked_in_at && !isFlinkDone && !match.professional_confirmed_at;
+            const awaitingCompanyConfirmation =
+              match.status === "confirmed" && !!match.professional_confirmed_at && !match.company_confirmed_at && flinkStatus !== "completed";
             const isActing = actingOn === match.id;
 
             return (
@@ -167,6 +189,39 @@ const Matches = () => {
                   </div>
                 )}
 
+                {canConfirmCompletion && (
+                  <div className="mt-3">
+                    <Button
+                      size="sm"
+                      className="w-full gap-2 bg-success text-success-foreground"
+                      onClick={() => setCompleteDialog(match.id)}
+                      disabled={isActing}
+                    >
+                      {isActing ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />}
+                      Confirmar Conclusão do Serviço
+                    </Button>
+                  </div>
+                )}
+
+                {awaitingCompanyConfirmation && (
+                  <div className="mt-3 flex items-center gap-2 rounded-lg bg-warning/5 border border-warning/10 px-3 py-2">
+                    <Clock className="h-3.5 w-3.5 text-warning" />
+                    <p className="text-[11px] text-muted-foreground">
+                      Você confirmou a conclusão. Aguardando a empresa confirmar para liberar o pagamento
+                      (ou o prazo automático, se ela não confirmar).
+                    </p>
+                  </div>
+                )}
+
+                {flinkStatus === "completed" && (
+                  <div className="mt-3 flex items-center gap-2 rounded-lg bg-success/5 border border-success/10 px-3 py-2">
+                    <CheckCircle className="h-3.5 w-3.5 text-success" />
+                    <p className="text-[11px] text-muted-foreground">
+                      Serviço concluído e pagamento liberado.
+                    </p>
+                  </div>
+                )}
+
                 {chatAllowed && (
                   <div className="mt-3 flex gap-2">
                     <Button
@@ -193,6 +248,31 @@ const Matches = () => {
           })}
         </div>
       </div>
+
+      <Dialog open={!!completeDialog} onOpenChange={() => setCompleteDialog(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirmar Conclusão do Serviço</DialogTitle>
+            <DialogDescription>
+              Confirme só depois de ter executado o serviço combinado. A empresa também precisa confirmar
+              para o pagamento ser liberado — se ela não confirmar, o sistema libera automaticamente após
+              o prazo definido pela plataforma.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setCompleteDialog(null)}>
+              Voltar
+            </Button>
+            <Button
+              className="bg-success text-success-foreground"
+              onClick={() => completeDialog && handleConfirmCompletion(completeDialog)}
+              disabled={actingOn === completeDialog}
+            >
+              {actingOn === completeDialog ? <Loader2 className="h-4 w-4 animate-spin" /> : "Confirmar Conclusão"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={!!cancelDialog} onOpenChange={() => setCancelDialog(null)}>
         <DialogContent>
